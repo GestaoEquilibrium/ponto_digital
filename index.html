@@ -144,9 +144,10 @@
         var dayOccs = occByDate[date];
         if (dayOccs && dayOccs.length > 0) {
           dayOccs.forEach(function(o) {
-            var occText = (o.type === "admin" ? "[ADMIN] " : "") + o.description;
-            if (o.adminNote && o.adminNote.trim()) occText += " | Obs: " + o.adminNote;
-            rows.push([{content: "\u26A0\uFE0F " + occText, colSpan: 4, styles: {fillColor:[255,251,235], textColor:[146,64,14], fontSize:8, fontStyle:"italic", cellPadding:{top:3,bottom:3,left:10,right:6}}}]);
+            var prefix = o.type === "admin" ? "Obs. Admin: " : "Ocorrencia: ";
+            var occText = prefix + o.description;
+            if (o.adminNote && o.adminNote.trim()) occText += "\nResp. Administrativo: " + o.adminNote;
+            rows.push([{content:"", styles:{fillColor:[255,252,240]}}, {content: occText, colSpan: 3, styles: {fillColor:[255,252,240], textColor:[120,90,40], fontSize:7.5, fontStyle:"italic", cellPadding:{top:2,bottom:3,left:4,right:6}}}]);
           });
         }
       });
