@@ -103,7 +103,7 @@
     }
 
     // ═══════════════════ PDF ═══════════════════
-    function generatePDF(emp, monthRecords, monthLabel) {
+    function generatePDF(emp, monthRecords, monthLabel, monthOccurrences) {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF();
       const pw = doc.internal.pageSize.getWidth();
@@ -117,12 +117,19 @@
       doc.setFont("helvetica","normal"); doc.setFontSize(10);
       doc.text("Cargo: "+(emp.cargo||"\u2014"), 14, 58);
       doc.text("Gerado em: "+new Date().toLocaleDateString("pt-BR")+" às "+new Date().toLocaleTimeString("pt-BR"), 14, 65);
+      var occs = monthOccurrences || [];
+      var occByDate = {};
+      occs.forEach(function(o) { var d = isoDate(o.timestamp); if (!occByDate[d]) occByDate[d] = []; occByDate[d].push(o); });
       const groups = {};
       monthRecords.sort(function(a,b){return a.timestamp.localeCompare(b.timestamp);}).forEach(function(r) {
         const d = r.timestamp.slice(0,10); if (!groups[d]) groups[d]=[]; groups[d].push(r);
       });
+      var allDates = Object.keys(groups);
+      Object.keys(occByDate).forEach(function(d) { if (allDates.indexOf(d) === -1) allDates.push(d); });
+      allDates.sort();
       const rows = []; let totalMs = 0;
-      Object.entries(groups).sort(function([a],[b]){return a.localeCompare(b);}).forEach(function([date, recs]) {
+      allDates.forEach(function(date) {
+        var recs = groups[date] || [];
         const sorted = recs.sort(function(a,b){return a.timestamp.localeCompare(b.timestamp);});
         const entradas = sorted.filter(function(r){return r.type==="entrada";}).map(function(r){return fmtTime(r.timestamp);});
         const saidas = sorted.filter(function(r){return r.type==="saida";}).map(function(r){return fmtTime(r.timestamp);});
@@ -133,7 +140,15 @@
         }
         totalMs += dayMs;
         const h = Math.floor(dayMs/3600000), m = Math.floor((dayMs%3600000)/60000);
-        rows.push([fmtDateBR(date), entradas.join("\n"), saidas.join("\n"), h+"h "+String(m).padStart(2,"0")+"min"]);
+        rows.push([fmtDateBR(date), entradas.join("\n") || "-", saidas.join("\n") || "-", recs.length > 0 ? h+"h "+String(m).padStart(2,"0")+"min" : "-"]);
+        var dayOccs = occByDate[date];
+        if (dayOccs && dayOccs.length > 0) {
+          dayOccs.forEach(function(o) {
+            var occText = (o.type === "admin" ? "[ADMIN] " : "") + o.description;
+            if (o.adminNote && o.adminNote.trim()) occText += " | Obs: " + o.adminNote;
+            rows.push([{content: "\u26A0\uFE0F " + occText, colSpan: 4, styles: {fillColor:[255,251,235], textColor:[146,64,14], fontSize:8, fontStyle:"italic", cellPadding:{top:3,bottom:3,left:10,right:6}}}]);
+          });
+        }
       });
       doc.autoTable({ startY:74, head:[["Data","Entradas","Saídas","Horas Trab."]], body:rows,
         styles:{fontSize:9,cellPadding:4,lineColor:[226,232,240]}, headStyles:{fillColor:[59,130,246],textColor:255,fontStyle:"bold",fontSize:10},
@@ -433,8 +448,8 @@
       }
 
       // PDF & CSV
-      async function downloadPDF(emp){ setPdfBusy(true); const recs=getMonthRecs(emp.id); if(recs.length===0){setToast({msg:"Sem registros",type:"error"});setPdfBusy(false);return;} const parts=month.split("-"); generatePDF(emp,recs,parts[1]+"/"+parts[0]); setToast({msg:"PDF gerado!",type:"success"}); setPdfBusy(false); }
-      async function downloadAllPDFs(){ setPdfBusy(true); const parts=month.split("-"); let count=0; for(const emp of active){const recs=getMonthRecs(emp.id);if(recs.length>0){generatePDF(emp,recs,parts[1]+"/"+parts[0]);count++;}} setToast({msg:count>0?count+" PDF(s)!":"Nenhum registro",type:count>0?"success":"error"}); setPdfBusy(false); }
+      async function downloadPDF(emp){ setPdfBusy(true); const recs=getMonthRecs(emp.id); if(recs.length===0&&occurrences.filter(function(o){return o.employeeId===emp.id&&o.timestamp.startsWith(month);}).length===0){setToast({msg:"Sem registros",type:"error"});setPdfBusy(false);return;} const parts=month.split("-"); var empOccs=occurrences.filter(function(o){return o.employeeId===emp.id&&o.timestamp.startsWith(month);}); generatePDF(emp,recs,parts[1]+"/"+parts[0],empOccs); setToast({msg:"PDF gerado!",type:"success"}); setPdfBusy(false); }
+      async function downloadAllPDFs(){ setPdfBusy(true); const parts=month.split("-"); let count=0; for(const emp of active){const recs=getMonthRecs(emp.id);var empOccs=occurrences.filter(function(o){return o.employeeId===emp.id&&o.timestamp.startsWith(month);});if(recs.length>0||empOccs.length>0){generatePDF(emp,recs,parts[1]+"/"+parts[0],empOccs);count++;}} setToast({msg:count>0?count+" PDF(s)!":"Nenhum registro",type:count>0?"success":"error"}); setPdfBusy(false); }
       function exportCSV(){ let csv="Funcionário,Cargo,Data,Tipo,Horário\n"; active.forEach(function(emp){getMonthRecs(emp.id).forEach(function(r){ csv+='"'+emp.name+'","'+(emp.cargo||"")+'","'+fmtDateBR(isoDate(r.timestamp))+'","'+r.type+'","'+fmtTime(r.timestamp)+'"\n'; });}); const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"}));a.download="relatorio-"+month+".csv";a.click(); setToast({msg:"CSV exportado!",type:"success"}); }
 
       // Admin pw
