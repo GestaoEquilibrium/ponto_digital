@@ -11,6 +11,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     :root {
       --bg: #f1f5f9; --card: #ffffff; --border: #e2e8f0; --input-bg: #f8fafc;
@@ -103,7 +104,7 @@
     }
 
     // ═══════════════════ PDF ═══════════════════
-    function generatePDF(emp, monthRecords, monthLabel, monthOccurrences) {
+    function generatePDF(emp, monthRecords, monthLabel, monthOccurrences, returnBlob) {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF();
       const pw = doc.internal.pageSize.getWidth();
@@ -169,7 +170,9 @@
       doc.text("Assinatura do Responsável",pw-52,sigY+6,{align:"center"});
       doc.setFontSize(7); doc.setTextColor(160,170,180);
       doc.text("Documento gerado pelo sistema Ponto Digital",pw/2,doc.internal.pageSize.getHeight()-8,{align:"center"});
-      doc.save("ponto-"+emp.name.replace(/\s+/g,"_")+"-"+monthLabel.replace("/","-")+".pdf");
+      var fileName = "ponto-"+emp.name.replace(/\s+/g,"_")+"-"+monthLabel.replace("/","-")+".pdf";
+      if (returnBlob) { return { blob: doc.output("blob"), fileName: fileName }; }
+      doc.save(fileName);
     }
 
     // ═══════════════════ HELPERS ═══════════════════
@@ -450,7 +453,33 @@
 
       // PDF & CSV
       async function downloadPDF(emp){ setPdfBusy(true); const recs=getMonthRecs(emp.id); if(recs.length===0&&occurrences.filter(function(o){return o.employeeId===emp.id&&o.timestamp.startsWith(month);}).length===0){setToast({msg:"Sem registros",type:"error"});setPdfBusy(false);return;} const parts=month.split("-"); var empOccs=occurrences.filter(function(o){return o.employeeId===emp.id&&o.timestamp.startsWith(month);}); generatePDF(emp,recs,parts[1]+"/"+parts[0],empOccs); setToast({msg:"PDF gerado!",type:"success"}); setPdfBusy(false); }
-      async function downloadAllPDFs(){ setPdfBusy(true); const parts=month.split("-"); let count=0; for(const emp of active){const recs=getMonthRecs(emp.id);var empOccs=occurrences.filter(function(o){return o.employeeId===emp.id&&o.timestamp.startsWith(month);});if(recs.length>0||empOccs.length>0){generatePDF(emp,recs,parts[1]+"/"+parts[0],empOccs);count++;}} setToast({msg:count>0?count+" PDF(s)!":"Nenhum registro",type:count>0?"success":"error"}); setPdfBusy(false); }
+      async function downloadAllPDFs(){
+        setPdfBusy(true);
+        var parts=month.split("-");
+        var zip=new JSZip();
+        var count=0;
+        for(var i=0;i<active.length;i++){
+          var emp=active[i];
+          var recs=getMonthRecs(emp.id);
+          var empOccs=occurrences.filter(function(o){return o.employeeId===emp.id&&o.timestamp.startsWith(month);});
+          if(recs.length>0||empOccs.length>0){
+            var result=generatePDF(emp,recs,parts[1]+"/"+parts[0],empOccs,true);
+            zip.file(result.fileName,result.blob);
+            count++;
+          }
+        }
+        if(count===0){setToast({msg:"Nenhum registro no mês",type:"error"});setPdfBusy(false);return;}
+        try{
+          var zipBlob=await zip.generateAsync({type:"blob"});
+          var a=document.createElement("a");
+          a.href=URL.createObjectURL(zipBlob);
+          a.download="relatorios-ponto-"+month+".zip";
+          a.click();
+          URL.revokeObjectURL(a.href);
+          setToast({msg:count+" PDF(s) em 1 arquivo ZIP!",type:"success"});
+        }catch(e){console.error("ZIP error:",e);setToast({msg:"Erro ao gerar ZIP.",type:"error"});}
+        setPdfBusy(false);
+      }
       function exportCSV(){ let csv="Funcionário,Cargo,Data,Tipo,Horário\n"; active.forEach(function(emp){getMonthRecs(emp.id).forEach(function(r){ csv+='"'+emp.name+'","'+(emp.cargo||"")+'","'+fmtDateBR(isoDate(r.timestamp))+'","'+r.type+'","'+fmtTime(r.timestamp)+'"\n'; });}); const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"}));a.download="relatorio-"+month+".csv";a.click(); setToast({msg:"CSV exportado!",type:"success"}); }
 
       // Admin pw
